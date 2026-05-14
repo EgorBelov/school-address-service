@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Правила закрепления школ</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 32px;
+        }
+
+        .card {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 28px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.08);
+        }
+
+        a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+
+        .nav {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th {
+            text-align: left;
+            background: #f9fafb;
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+
+        .raw {
+            color: #475467;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #3730a3;
+            font-size: 12px;
+        }
+        button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: #ef4444;
+    color: white;
+    cursor: pointer;
+}
+input, select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid #d0d5dd;
+}
+
+button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+}
+
+button.danger {
+    background: #ef4444;
+}
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="nav">
+        <a href="/">Поиск школы</a>
+        <a href="/admin/upload">Загрузка постановления</a>
+    </div>
+
+    <h1>Правила закрепления школ</h1>
+    <p>Всего правил: {{ rules|length }}</p>
+
+    <table>
+        <thead>
+                
+        <tr>
+            <th>Школа</th>
+            <th>Улица</th>
+            <th>Правило</th>
+            <th>Чётность</th>
+            <th>Диапазон</th>
+            <th>Отдельные дома</th>
+            <th>Постановление</th>
+            <th>Действия</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for rule in rules %}
+            <tr>
+    <form action="/admin/rules/update/{{ rule.id }}" method="post">
+        <td>{{ rule.school.name }}</td>
+
+        <td>
+            <input name="street" value="{{ rule.street }}">
+        </td>
+
+        <td>
+            <input name="house_rule_raw" value="{{ rule.house_rule_raw }}">
+        </td>
+
+        <td>
+            <select name="parity">
+                <option value="all" {% if rule.parity == "all" %}selected{% endif %}>all</option>
+                <option value="even" {% if rule.parity == "even" %}selected{% endif %}>even</option>
+                <option value="odd" {% if rule.parity == "odd" %}selected{% endif %}>odd</option>
+                <option value="mixed" {% if rule.parity == "mixed" %}selected{% endif %}>mixed</option>
+                <option value="unknown" {% if rule.parity == "unknown" %}selected{% endif %}>unknown</option>
+            </select>
+        </td>
+
+        <td>
+            <input name="house_from" value="{{ rule.house_from or '' }}" style="width: 60px;">
+            —
+            <input name="house_to" value="{{ rule.house_to or '' }}" style="width: 60px;">
+        </td>
+
+        <td>
+            <input name="house_number" value="{{ rule.house_number or '' }}">
+        </td>
+
+        <td>
+            № {{ rule.decree_id }}
+        </td>
+
+        <td>
+            <button type="submit">Сохранить</button>
+    </form>
+
+            <form action="/admin/rules/delete/{{ rule.id }}" method="post" style="margin-top: 8px;">
+                <button type="submit" class="danger">Удалить</button>
+            </form>
+        </td>
+</tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+</body>
+</html>

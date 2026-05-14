@@ -1,0 +1,62 @@
+# ───── Секреты и окружение ─────
+.env
+.env.*
+!.env.example
+
+# ───── Виртуальные окружения Python ─────
+.venv/
+venv/
+env/
+ENV/
+
+# ───── Кэш и байткод Python ─────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ───── База данных (локальная SQLite) ─────
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ───── Загруженные и извлечённые файлы ─────
+storage/decrees/*
+storage/extracted/*
+!storage/decrees/.gitkeep
+!storage/extracted/.gitkeep
+
+# ───── Логи ─────
+*.log
+logs/
+
+# ───── IDE и редакторы ─────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ───── Тесты и покрытие ─────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ───── Сборка и дистрибутивы ─────
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ───── Jupyter ─────
+.ipynb_checkpoints/
+
+# ───── OS-специфичное ─────
+Thumbs.db
+desktop.ini
