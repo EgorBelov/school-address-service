@@ -2,7 +2,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.models.models import Municipality, School, Decree, AddressRule
-
+from app.services.dadata.street_validator import validate_street_with_dadata
 
 def normalize_parity(value: str | None) -> str:
     if value in ["all", "even", "odd", "mixed", "unknown"]:
@@ -103,17 +103,30 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
 
             if not house_rule_raw and not house_number and not house_from and not house_to:
                 continue
+            
+            locality = rule_data.get("locality")
+            street_clean = street.replace("ул. ", "").replace("пр-кт ", "").strip()
+
+            street_check = validate_street_with_dadata(
+                locality=locality,
+                street=street_clean
+            )
 
             rule = AddressRule(
                 school_id=school.id,
                 decree_id=decree.id,
-                locality=rule_data.get("locality"),
-                street=street.replace("ул. ", "").replace("пр-кт ", "").strip(),
+                locality=locality,
+                street=street_clean,
+                normalized_street=street_check["normalized_street"],
                 house_rule_raw=house_rule_raw,
                 parity=normalize_parity(rule_data.get("parity")),
                 house_from=normalize_int(rule_data.get("house_from")),
                 house_to=normalize_int(rule_data.get("house_to")),
                 house_number=normalize_house_number(rule_data.get("house_number")),
+                dadata_value=street_check["dadata_value"],
+                dadata_confidence=street_check["confidence"],
+                validation_status=street_check["status"],
+                validation_comment=street_check["comment"],
             )
 
             db.add(rule)

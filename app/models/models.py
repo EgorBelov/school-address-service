@@ -48,6 +48,7 @@ class AddressRule(Base):
 
     locality = Column(String, nullable=True)
     street = Column(String, nullable=False)
+    normalized_street = Column(String, nullable=True)
 
     house_rule_raw = Column(String, nullable=False)
 
@@ -56,6 +57,10 @@ class AddressRule(Base):
     house_to = Column(Integer, nullable=True)
     house_number = Column(String, nullable=True)
 
-    school = relationship("School", back_populates="rules")
+    dadata_value = Column(String, nullable=True)
+    dadata_confidence = Column(String, nullable=True)
+    validation_status = Column(String, default="unchecked")
+    validation_comment = Column(String, nullable=True)
 
+    school = relationship("School", back_populates="rules")
     decree = relationship("Decree")

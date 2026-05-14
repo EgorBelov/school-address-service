@@ -71,7 +71,7 @@ def find_school_by_address(
     rules = db.query(AddressRule).all()
 
     for rule in rules:
-        rule_street = normalize_street_name(rule.street)
+        rule_street = normalize_street_name(rule.normalized_street or rule.street)
 
         if rule_street != target_street:
             continue

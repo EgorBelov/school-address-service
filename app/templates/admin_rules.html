@@ -114,6 +114,8 @@ button.danger {
             <th>Отдельные дома</th>
             <th>Постановление</th>
             <th>Действия</th>
+            <th>DaData</th>
+            <th>Статус</th>
         </tr>
         </thead>
         <tbody>
@@ -153,7 +155,15 @@ button.danger {
         <td>
             № {{ rule.decree_id }}
         </td>
+        <td>
+    {{ rule.dadata_value or "—" }}
+</td>
 
+<td>
+    {{ rule.validation_status or "unchecked" }}
+    <br>
+    <small>{{ rule.validation_comment or "" }}</small>
+</td>
         <td>
             <button type="submit">Сохранить</button>
     </form>
