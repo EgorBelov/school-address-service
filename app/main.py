@@ -16,6 +16,7 @@ from app.services.ai.gigachat.decree_parser import parse_decree_with_gigachat
 from app.services.parser.save_parsed_decree import save_parsed_decree
 from app.models.models import AddressRule, School, Decree
 from app.services.validation.rules_validator import validate_rules
+from app.services.parser.universal_parser import parse_document_universal
 
 
 Base.metadata.create_all(bind=engine)
@@ -161,6 +162,7 @@ def admin_upload_file(
             name="admin_upload.html",
             context={
                 "text": extracted_text[:8000],
+                "file_path": str(file_path),
                 "error": None
             }
         )
@@ -178,10 +180,14 @@ def admin_upload_file(
 @app.post("/admin/parse-with-ai", response_class=HTMLResponse)
 def admin_parse_with_ai(
     request: Request,
-    text: str = Form(...)
+    text: str = Form(...),
+    file_path: str = Form("")
 ):
     try:
-        parsed = parse_decree_with_gigachat(text)
+        parsed = parse_document_universal(
+            text=text,
+            file_path=file_path or None
+        )
 
         return templates.TemplateResponse(
             request=request,
@@ -294,6 +300,9 @@ def update_rule(
     house_from: str = Form(""),
     house_to: str = Form(""),
     house_number: str = Form(""),
+    rule_type: str = Form("unknown"),
+    house_numbers: str = Form(""),
+    exceptions: str = Form(""),
     db: Session = Depends(get_db)
 ):
     rule = db.query(AddressRule).filter(AddressRule.id == rule_id).first()
@@ -305,6 +314,9 @@ def update_rule(
         rule.house_from = int(house_from) if house_from.strip().isdigit() else None
         rule.house_to = int(house_to) if house_to.strip().isdigit() else None
         rule.house_number = house_number.strip() or None
+        rule.rule_type = rule_type.strip()
+        rule.house_numbers = house_numbers.strip() or None
+        rule.exceptions = exceptions.strip() or None
 
         db.commit()
 

@@ -59,6 +59,7 @@
 
     <form action="/admin/upload" method="post" enctype="multipart/form-data">
         <input type="file" name="file" accept=".doc,.docx,.pdf" required>
+        <input type="hidden" name="file_path" value="{{ file_path or '' }}">
         <br>
         <button type="submit">Загрузить и извлечь текст</button>
     </form>

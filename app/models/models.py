@@ -52,10 +52,16 @@ class AddressRule(Base):
 
     house_rule_raw = Column(String, nullable=False)
 
+    rule_type = Column(String, default="unknown")
     parity = Column(String, default="all")
+
     house_from = Column(Integer, nullable=True)
     house_to = Column(Integer, nullable=True)
     house_number = Column(String, nullable=True)
+    house_numbers = Column(String, nullable=True)
+    exceptions = Column(String, nullable=True)
+
+    comment = Column(String, nullable=True)
 
     dadata_value = Column(String, nullable=True)
     dadata_confidence = Column(String, nullable=True)

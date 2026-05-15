@@ -1,10 +1,12 @@
-from pathlib import Path
+import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 
 import pdfplumber
-import pytesseract
 from docx import Document
-from pdf2image import convert_from_path
+
+from app.services.ocr.ocr_space import extract_text_with_ocr_space
 
 
 def extract_text_from_docx(file_path: str) -> str:
@@ -36,39 +38,73 @@ def extract_text_from_pdf_native(file_path: str) -> str:
     return "\n\n".join(lines)
 
 
-def extract_text_from_pdf_ocr(file_path: str) -> str:
-    pages = convert_from_path(file_path, dpi=300)
-    result = []
-
-    for index, page in enumerate(pages, start=1):
-        text = pytesseract.image_to_string(
-            page,
-            lang="rus+eng"
-        )
-
-        result.append(f"\n--- OCR PAGE {index} ---\n{text}")
-
-    return "\n\n".join(result)
-
-
 def extract_text_from_pdf(file_path: str) -> str:
     native_text = extract_text_from_pdf_native(file_path)
 
-    # Если текста мало — считаем, что это скан
     if len(native_text.strip()) >= 500:
         return native_text
 
-    return extract_text_from_pdf_ocr(file_path)
+    return extract_text_with_ocr_space(file_path)
+
+
+def convert_doc_to_docx(file_path: str) -> str | None:
+    """
+    Конвертация .doc → .docx через LibreOffice (`soffice`). Кросс-платформенно.
+    Возвращает путь к получившемуся .docx, либо None если LibreOffice не
+    установлен или конвертация упала.
+    """
+    if not shutil.which("soffice"):
+        return None
+
+    tmp_dir = tempfile.mkdtemp(prefix="doc_convert_")
+
+    try:
+        subprocess.run(
+            [
+                "soffice", "--headless",
+                "--convert-to", "docx",
+                "--outdir", tmp_dir,
+                file_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    converted = list(Path(tmp_dir).glob("*.docx"))
+    if not converted:
+        return None
+
+    return str(converted[0])
 
 
 def extract_text_from_doc(file_path: str) -> str:
-    result = subprocess.run(
-        ["textutil", "-convert", "txt", "-stdout", file_path],
-        capture_output=True,
-        text=True,
-        check=True,
+    """
+    Сначала пробуем кросс-платформенный путь через LibreOffice
+    (.doc → .docx → текст). Если LibreOffice не установлен,
+    падаем на macOS-only `textutil`.
+    """
+    converted = convert_doc_to_docx(file_path)
+    if converted:
+        return extract_text_from_docx(converted)
+
+    if shutil.which("textutil"):
+        result = subprocess.run(
+            ["textutil", "-convert", "txt", "-stdout", file_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+
+    raise RuntimeError(
+        "Не удалось извлечь текст из .doc: установите LibreOffice "
+        "(`brew install libreoffice` / `apt install libreoffice-writer`) "
+        "или конвертируйте файл в .docx / .pdf вручную."
     )
-    return result.stdout
 
 
 def extract_text(file_path: str) -> str:

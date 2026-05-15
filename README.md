@@ -2,7 +2,7 @@
 
 Веб-сервис для определения школы, к которой прикреплён адрес проживания, на основе муниципальных постановлений «О закреплении территорий за общеобразовательными организациями».
 
-Курсовая работа. Реализована полная цепочка: загрузка официального постановления (`.doc` / `.docx` / `.pdf`) → извлечение текста (включая OCR для сканов) → парсинг с помощью LLM (GigaChat) → нормализация и сохранение в БД → поиск школы по адресу через DaData.
+Курсовая работа. Реализована полная цепочка: загрузка официального постановления (`.doc` / `.docx` / `.pdf`) → извлечение текста (с OCR для сканов через ocr.space) → классификация формата и табличный парсинг (pdfplumber + PyMuPDF, python-docx) → парсинг сложных правил через LLM (GigaChat) с Pydantic-валидацией → нормализация и сохранение в БД → поиск школы по адресу через DaData.
 
 ---
 
@@ -14,14 +14,16 @@
 4. [Модель данных](#модель-данных)
 5. [Как работает поиск школы](#как-работает-поиск-школы)
 6. [Pipeline загрузки постановления](#pipeline-загрузки-постановления)
-7. [AI-агент (GigaChat)](#ai-агент-gigachat)
-8. [Валидатор правил](#валидатор-правил)
-9. [HTTP endpoints](#http-endpoints)
-10. [Установка и запуск](#установка-и-запуск)
-11. [Конфигурация (.env)](#конфигурация-env)
-12. [Заполнение тестовыми данными](#заполнение-тестовыми-данными)
-13. [Пример использования](#пример-использования)
-14. [Известные ограничения](#известные-ограничения)
+7. [AI-агенты](#ai-агенты)
+8. [Извлечение метаданных](#извлечение-метаданных)
+9. [Извлечение таблиц из PDF и DOCX](#извлечение-таблиц-из-pdf-и-docx)
+10. [Валидатор правил](#валидатор-правил)
+11. [HTTP endpoints](#http-endpoints)
+12. [Установка и запуск](#установка-и-запуск)
+13. [Конфигурация (.env)](#конфигурация-env)
+14. [Заполнение тестовыми данными](#заполнение-тестовыми-данными)
+15. [Пример использования](#пример-использования)
+16. [Известные ограничения](#известные-ограничения)
 
 ---
 
@@ -36,11 +38,15 @@
 
 ### Админ-панель
 - **Загрузка постановления** (`.doc`, `.docx`, `.pdf`) с автоматическим извлечением текста.
-  - Для PDF — сначала пробуется нативный текстовый слой (pdfplumber), затем при необходимости OCR (pdf2image + Tesseract, языки `rus+eng`).
-  - Для `.docx` — `python-docx` с обработкой параграфов и таблиц.
-  - Для `.doc` — конвертация через системный `textutil` (только macOS).
-- **AI-парсинг** извлечённого текста через GigaChat: разбиение на чанки по школам и сборка структурированного JSON.
-- **Сохранение** распарсенных данных в БД с нормализацией значений (parity, диапазоны, отдельные дома).
+  - PDF: сначала нативный текстовый слой (pdfplumber), затем при необходимости OCR через ocr.space.
+  - DOCX: `python-docx` с обработкой параграфов и таблиц.
+  - DOC: конвертация через LibreOffice headless (`soffice --headless --convert-to docx`); fallback на `textutil` (macOS).
+- **Универсальный AI-парсинг** через GigaChat:
+  - LLM-классификатор формата документа (`document_classifier`).
+  - Стратегии парсинга по типу: `TwoColumnParserStrategy` (таблица «школа | территория»), `MultiColumnParserStrategy` (свободный текст / много колонок).
+  - Pydantic-валидация ответов LLM с автоматической коэрсией типов.
+- **Извлечение метаданных** постановления (номер, дата, муниципалитет) регэкспами до вызова LLM — экономит токены и страхует, если LLM их не вытянул.
+- **Сохранение** распарсенных данных в БД с нормализацией (parity, диапазоны, отдельные дома, исключения).
 - **Просмотр и редактирование** правил закрепления (CRUD-таблица).
 - **Валидация правил**: пустые поля, некорректные диапазоны, неизвестные значения чётности и **поиск пересечений** правил между разными школами на одной улице.
 
@@ -56,7 +62,9 @@
 | Конфигурация | pydantic-settings, `.env` |
 | Адресный сервис | DaData (`suggest`, `clean`) |
 | LLM | GigaChat (Sber) |
-| Извлечение текста | pdfplumber, pdf2image, pytesseract, python-docx, `textutil` (macOS) |
+| Валидация LLM-ответов | Pydantic v2 |
+| Извлечение текста | pdfplumber, PyMuPDF, python-docx, LibreOffice (`soffice`) |
+| OCR (для сканов) | ocr.space API |
 
 ---
 
@@ -65,55 +73,78 @@
 ```
 school-address-service/
 ├── app/
-│   ├── main.py                          # FastAPI-приложение, все endpoints
+│   ├── main.py                                    # FastAPI-приложение, все endpoints
 │   │
 │   ├── core/
-│   │   └── config.py                    # Pydantic Settings, чтение .env
+│   │   └── config.py                              # Pydantic Settings, чтение .env
 │   │
 │   ├── db/
-│   │   └── session.py                   # SQLAlchemy engine, SessionLocal, Base
+│   │   └── session.py                             # SQLAlchemy engine, SessionLocal, Base
 │   │
 │   ├── models/
-│   │   └── models.py                    # ORM-модели: Municipality, School, Decree, AddressRule
+│   │   └── models.py                              # ORM-модели: Municipality, School, Decree, AddressRule
 │   │
 │   ├── services/
 │   │   ├── dadata/
-│   │   │   └── client.py                # Обёртка над DaData (suggest, clean)
+│   │   │   └── client.py                          # Обёртка над DaData (suggest, clean)
+│   │   │
+│   │   ├── ocr/
+│   │   │   └── ocr_space.py                       # Облачный OCR через ocr.space API
 │   │   │
 │   │   ├── parser/
-│   │   │   ├── text_extractor.py        # Извлечение текста из .doc/.docx/.pdf (+ OCR)
-│   │   │   ├── splitter.py              # Разбиение текста постановления на чанки по школам
-│   │   │   └── save_parsed_decree.py    # Сохранение структурированных данных в БД
+│   │   │   ├── text_extractor.py                  # Извлечение текста: .doc / .docx / .pdf (+ OCR)
+│   │   │   ├── splitter.py                        # Семантическое разбиение текста на чанки по школам
+│   │   │   ├── school_blocks.py                   # Извлечение блоков «школа + территория» из сырого текста
+│   │   │   ├── pdf_table_extractor.py             # Многостратегийное извлечение таблиц из PDF (pdfplumber + PyMuPDF)
+│   │   │   ├── docx_table_extractor.py            # Извлечение таблиц из DOCX (переиспользует логику pdf_table_extractor)
+│   │   │   ├── metadata_extractor.py              # Регэксповое извлечение № / даты / муниципалитета
+│   │   │   ├── rule_normalizer.py                 # Нормализация правил (диапазоны, исключения, parity)
+│   │   │   ├── universal_parser.py                # Диспетчер стратегий по типу документа
+│   │   │   ├── save_parsed_decree.py              # Сохранение распарсенного результата в БД
+│   │   │   │
+│   │   │   └── strategies/
+│   │   │       ├── base.py                        # Абстрактный BaseParserStrategy
+│   │   │       ├── two_column_parser.py           # Парсер «школа | территория» (таблица + LLM на территории)
+│   │   │       └── multi_column_parser.py         # Парсер сложных и свободных форматов через LLM
 │   │   │
 │   │   ├── ai/
 │   │   │   └── gigachat/
-│   │   │       ├── client.py            # Клиент GigaChat
-│   │   │       ├── prompts.py           # Промпт для парсинга постановления
-│   │   │       └── decree_parser.py     # Чанкинг + LLM-вызовы + merge + очистка JSON
+│   │   │       ├── client.py                      # Клиент GigaChat
+│   │   │       ├── prompts.py                     # Промпт для парсинга постановления + few-shot примеры
+│   │   │       ├── schemas.py                     # Pydantic-модели ответов LLM (валидация + коэрсия типов)
+│   │   │       ├── decree_parser.py               # Чанкинг + LLM-вызовы + merge + Pydantic-валидация
+│   │   │       │
+│   │   │       └── classifier/
+│   │   │           └── document_classifier.py     # LLM-классификатор формата документа
 │   │   │
 │   │   ├── address/
-│   │   │   └── normalize.py             # Нормализация названия улицы (убрать «ул.», «пр-кт» и т.п.)
+│   │   │   └── normalize.py                       # Нормализация названия улицы (убрать «ул.», «пр-кт» и т.п.)
 │   │   │
 │   │   ├── search/
-│   │   │   └── find_school.py           # Алгоритм матчинга адреса с правилом
+│   │   │   └── find_school.py                     # Алгоритм матчинга адреса с правилом
 │   │   │
 │   │   └── validation/
-│   │       └── rules_validator.py       # Валидация правил + поиск пересечений
+│   │       └── rules_validator.py                 # Валидация правил + поиск пересечений
 │   │
 │   └── templates/
-│       ├── index.html                   # Главная страница (поиск школы)
-│       ├── admin_upload.html            # Загрузка и парсинг постановления
-│       ├── admin_rules.html             # Таблица правил (CRUD)
-│       └── admin_validation.html        # Отчёт валидатора
+│       ├── index.html                             # Главная страница (поиск школы)
+│       ├── admin_upload.html                      # Загрузка и парсинг постановления
+│       ├── admin_rules.html                       # Таблица правил (CRUD)
+│       └── admin_validation.html                  # Отчёт валидатора
 │
 ├── storage/
-│   ├── decrees/                         # Загруженные исходные файлы постановлений
-│   └── extracted/                       # Извлечённый текст в .txt
+│   ├── decrees/                                   # Загруженные исходные файлы постановлений
+│   └── extracted/                                 # Извлечённый текст в .txt
 │
-├── seed.py                              # Скрипт заполнения БД тестовыми данными
-├── requirements.txt                     # Python-зависимости
-├── school_service.db                    # SQLite-база (создаётся автоматически)
-├── .env                                 # Секреты и настройки (не коммитить!)
+├── example/                                       # Примеры реальных постановлений для тестирования
+│   ├── 06.03.2025-01-02-252.doc                   # Березники
+│   └── проект.pdf                                 # Балашиха
+│
+├── seed.py                                        # Скрипт заполнения БД тестовыми данными
+├── requirements.txt                               # Python-зависимости
+├── school_service.db                              # SQLite-база (создаётся автоматически)
+├── .env                                           # Секреты и настройки (не коммитится)
+├── .gitignore
 └── README.md
 ```
 
@@ -124,8 +155,13 @@ school-address-service/
 ```
 Municipality (1) ──< School (1) ──< AddressRule >── (1) Decree
                                        │
-                                       └── locality, street, parity,
-                                           house_from, house_to, house_number,
+                                       └── locality, street, normalized_street,
+                                           rule_type, parity,
+                                           house_from, house_to,
+                                           house_number, house_numbers, exceptions,
+                                           comment,
+                                           dadata_value, dadata_confidence,
+                                           validation_status, validation_comment,
                                            house_rule_raw
 ```
 
@@ -140,11 +176,18 @@ Municipality (1) ──< School (1) ──< AddressRule >── (1) Decree
 - **address_rules** — правило закрепления одного диапазона адресов за одной школой.
   - `id`, `school_id`, `decree_id`
   - `locality` — населённый пункт
-  - `street` — название улицы
+  - `street` — название улицы (как в постановлении)
+  - `normalized_street` — название улицы после нормализации (для быстрого поиска)
   - `house_rule_raw` — оригинальный текст правила из постановления
+  - `rule_type` — тип правила: `all` / `exact_list` / `range` / `up_to` / `from_to_end` / `all_except` / `mixed` / `unknown`
   - `parity` — `all` / `even` / `odd` / `mixed` / `unknown`
   - `house_from`, `house_to` — диапазон номеров домов (или `null`)
-  - `house_number` — список отдельных домов через запятую (или `null`)
+  - `house_number` — отдельный дом или короткий список через запятую
+  - `house_numbers` — расширенный список конкретных домов
+  - `exceptions` — список исключённых из правила домов («кроме д.11»)
+  - `comment` — пояснение к правилу
+  - `dadata_value`, `dadata_confidence` — результат сверки с DaData
+  - `validation_status`, `validation_comment` — статус ручной/автоматической проверки
 
 > Поле `house_rule_raw` хранится всегда — это «сырой» текст правила, чтобы при ошибках парсинга человек мог свериться с оригиналом.
 
@@ -171,83 +214,164 @@ Municipality (1) ──< School (1) ──< AddressRule >── (1) Decree
 
 ## Pipeline загрузки постановления
 
-Файл: `app/services/parser/text_extractor.py`
-
 ```
-Файл (.doc / .docx / .pdf)
-        │
-        ▼
-┌──────────────────────┐
-│  extract_text()      │  ← диспетчер по расширению
-└──────────────────────┘
-        │
-        ├── .docx  → python-docx (параграфы + таблицы)
-        │
-        ├── .pdf   → pdfplumber (нативный текст)
+              ┌─────────────────────┐
+              │   Файл .doc/.docx/  │
+              │        .pdf         │
+              └──────────┬──────────┘
+                         │
+                         ▼
+        ┌─────────────────────────────────┐
+        │   text_extractor.extract_text() │  ← диспетчер по расширению
+        └─────────────────────────────────┘
+            │            │              │
+       .docx│       .pdf │         .doc │
+            │            │              │
+            ▼            ▼              ▼
+     python-docx   pdfplumber     LibreOffice (soffice)
+                  (нативный)       → .docx
+                       │            (fallback: textutil
+                       ▼              на macOS)
+              если текста < 500 символов
+                       │
+                       ▼
+                ocr.space API
+                       │
+                       ▼
+              ┌────────────────┐
+              │ Сырой текст в  │
+              │ storage/       │
+              │ extracted/*.txt│
+              └────────┬───────┘
+                       │
+                       ▼
+       ┌───────────────────────────────────┐
+       │  document_classifier (GigaChat)   │
+       │  → "two_column_school_territories"│
+       │  → "multi_column_street_house"    │
+       │  → "plain_text_list"              │
+       │  → "unknown"                      │
+       └───────────────┬───────────────────┘
+                       │
+                       ▼
+       ┌───────────────────────────────────┐
+       │       universal_parser            │
+       │     (диспетчер стратегий)         │
+       └───────────────┬───────────────────┘
+                       │
+        ┌──────────────┼─────────────────────┐
+        ▼              ▼                     ▼
+  TwoColumn      MultiColumn         (fallback внутри
+  Strategy       Strategy            TwoColumn, если
+        │              │             таблиц не нашлось)
+        ▼              ▼                     │
+  pdf/docx_table_  parse_decree_with_        │
+  extractor +      gigachat ←────────────────┘
+  per-school
+  LLM-промпт
         │              │
-        │              └── если текста < 500 символов
-        │                  → OCR (pdf2image + pytesseract, lang="rus+eng", dpi=300)
-        │
-        └── .doc   → subprocess: textutil -convert txt (только macOS)
+        └──────┬───────┘
+               ▼
+       ┌──────────────────────────────┐
+       │  Pydantic-валидация ответа   │
+       │  (DecreeResponseModel /      │
+       │   TerritoryResponseModel)    │
+       │  + metadata_extractor seed   │
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+              ┌───────────────┐
+              │ Структурный   │
+              │     JSON      │
+              └───────┬───────┘
+                      │
+                      ▼
+            save_parsed_decree → БД
 ```
-
-Извлечённый текст сохраняется в `storage/extracted/<имя файла>.txt`.
 
 ---
 
-## AI-агент (GigaChat)
+## AI-агенты
 
-Файлы: `app/services/ai/gigachat/`
+В системе три отдельных «агента» поверх GigaChat. Каждый — отдельный промпт + Pydantic-схема ответа.
 
-### Промпт (`prompts.py`)
+### 1. Классификатор формата
+Файл: `app/services/ai/gigachat/classifier/document_classifier.py`
 
-Просим LLM вернуть **строго JSON** в фиксированной схеме:
-
+Получает первые 5000 символов документа. Возвращает:
 ```json
-{
-  "decree": {"number": "", "date": "", "municipality": ""},
-  "schools": [
-    {
-      "name": "",
-      "address": "",
-      "rules": [
-        {
-          "locality": "",
-          "street": "",
-          "house_rule_raw": "",
-          "parity": "all|even|odd|mixed|unknown",
-          "house_from": null,
-          "house_to": null,
-          "house_number": null,
-          "comment": ""
-        }
-      ]
-    }
-  ]
-}
+{ "document_type": "...", "confidence": 0.0, "reason": "..." }
 ```
+Возможные типы:
+- `two_column_school_territories` — таблица «слева школа, справа улицы»;
+- `multi_column_street_house` — отдельные колонки школа/улица/дома;
+- `plain_text_list` — свободный текстовый список;
+- `unknown` — формат не определён.
 
-### Пайплайн парсинга (`decree_parser.py`)
+### 2. Парсер всего постановления
+Файл: `app/services/ai/gigachat/decree_parser.py`
+Промпт: `app/services/ai/gigachat/prompts.py` → `DECREE_PARSE_PROMPT`
 
-1. **Чанкинг** через `split_text_by_schools` (`splitter.py`):
-   - регулярка ищет пункты вида `\n  1.\n`, `\n  4.1.\n`, `\n  11.2.\n` — стандартная нумерация постановлений;
-   - текст режется на блоки по школам;
-   - если регулярка ничего не нашла — fallback на `split_text_by_size` (по 4000 символов).
-2. **Парсинг каждого чанка** отдельным запросом к GigaChat. Чанк обрезается до 4000 символов и подставляется в промпт.
-3. **Очистка ответа** (`clean_json_text`): срезаются обрамляющие ` ```json `, лишние запятые перед `}`/`]`, выделяется JSON-блок регуляркой.
-4. **`json.loads`** с подробной ошибкой: при сбое возвращается фрагмент в ±300 символов от позиции ошибки.
-5. **Merge** результатов чанков (`merge_parsed_results`): данные постановления берутся из первого валидного чанка, школы — конкатенируются.
-6. **Ошибки чанков** не падают целиком — складываются в `result["errors"]` с превью текста.
+- Делит текст на чанки по школам через `splitter.split_text_by_schools` (регулярка по нумерации `1.`, `4.1.`, `11.2.`; fallback на `split_text_by_size` по 4000 символов).
+- Каждый чанк отправляет отдельным запросом в GigaChat.
+- Промпт содержит **few-shot примеры** для основных типов правил (диапазоны, чётность, исключения, начиная с дома N, до дома N, конкретные дома).
+- Ответ валидируется через `DecreeResponseModel` (Pydantic) с автокоэрсией типов: `"19"` → `19`, `["21","23"]` → `"21,23"`, `null` → `""`.
+- Ошибки парсинга чанков не валят весь процесс — складываются в `result["errors"]` с превью.
+- Метаданные постановления (`number`/`date`/`municipality`), не вытащенные LLM, добираются регэксповым `metadata_extractor`.
 
-### Сохранение (`save_parsed_decree.py`)
+### 3. Парсер территорий одной школы
+Файл: `app/services/parser/strategies/two_column_parser.py`
+Промпт: `TERRITORY_ONLY_PROMPT` (внутри файла)
 
-- Находит или создаёт `Municipality` по имени.
-- Создаёт новую запись `Decree`.
-- Для каждой школы из ответа:
-  - находит существующую `School` по имени или создаёт новую;
-  - для каждого правила нормализует значения (`normalize_parity`, `normalize_int`, `normalize_house_number`);
-  - сохраняет `AddressRule` с привязкой к школе и постановлению.
-- Возвращает сводку: количество школ и правил.
+- Используется в `TwoColumnParserStrategy` для постановлений типа «слева школа, справа территории».
+- На каждую школу — один LLM-запрос только со списком её улиц/домов (имя школы уже известно из таблицы).
+- Содержит few-shot примеры (диапазоны, exact_list, all_except, from_to_end, расщепление одного правила на чётные/нечётные).
+- Ответ валидируется через `TerritoryResponseModel` (Pydantic).
+- Если таблиц в файле не нашлось — fallback на агента №2 (`parse_decree_with_gigachat` на сыром тексте).
+
+---
+
+## Извлечение метаданных
+
+Файл: `app/services/parser/metadata_extractor.py`
+
+Регулярные выражения работают на первых ~3000 символах документа и тянут:
+
+- **Номер постановления**: `№ <число с дефисами и буквами>`. Игнорируется, если рядом маркеры чужого контекста: `ФЗ`, `ФКЗ`, `закон`, `приказ`, `Министерств`, `Постановление Правительства`, `утратившим силу`.
+- **Дата** в форматах `06.03.2025`, `06/03/25`, `6 марта 2025`. Тот же фильтр чужого контекста.
+- **Муниципалитет** по паттернам `Городск(ой|ого) округ Балашиха`, `город(а|ского) Пермь`, `муниципальный район Пушкинский`, `муниципальный округ Электросталь`. Префикс ищется без учёта регистра, имя — только с заглавной буквы (исключает мусор вроде «Балашиха за муниципальными»).
+
+Используется как «seed» — если LLM не заполнил поле, берём результат регэкспа. Если LLM заполнил — приоритет за ним.
+
+---
+
+## Извлечение таблиц из PDF и DOCX
+
+### PDF — `pdf_table_extractor.py`
+Многоуровневое извлечение, в порядке убывания приоритета:
+
+1. **pdfplumber + 4 разных стратегии** для каждой страницы:
+   - дефолт;
+   - `lines/lines` (для таблиц с явными границами);
+   - `text/text` (для borderless-таблиц);
+   - `lines/text` (смешанная вёрстка).
+   Из 4 результатов на странице берётся тот, что дал **наибольшую сумму длины территорий** (`_score_rows`) — это лучше отражает «сколько данных мы извлекли», чем количество строк.
+2. **PyMuPDF (`fitz`) как второй движок**, если pdfplumber дал меньше 3 школ. Часто лучше работает на borderless-таблицах.
+3. **Fallback `extract_by_two_columns`** — если таблиц вообще нет: режет страницу пополам по координатам и пытается выделить блоки школ слева и территории справа.
+
+Внутри `process_table()`:
+- Динамический поиск столбца школы (`is_school_cell`) — по «...школа|гимназия|лицей|СОШ|НОШ|ООШ...» в кавычках или префиксу `Муниципальн|Государственн|МБОУ|МАОУ|МОУ|МКОУ|ГБОУ|ГАОУ|ГОУ|ГКОУ|АНО|АНОО|ОАНО|ЧОУ|НОУ|СОШ|НОШ|ООШ`.
+- Сбор территории из всех остальных непустых ячеек (`is_territory_text` — широкий список маркеров: `ул.`/`мкр.`/`пр-кт`/`шоссе`/`СНТ`/`ДНП`/`ЖК`/`тер.`/`городок`/`линия`/`просек` и т.д.).
+- Дедупликация ячеек-подстрок (когда pdfplumber возвращает и слитую, и построчную версии одной ячейки).
+- Continuation-строки (без школы, но с территорией) приклеиваются к текущей записи.
+- `is_same_school` распознаёт продолжение того же school_name (например, обрывок «Гимназия № 11» в строке после полного имени) и сливает.
+- `stitch_split_names` склеивает имя, разорванное между страницами.
+- `merge_duplicate_schools` оставляет одну запись на школу — с самой длинной территорией.
+
+### DOCX — `docx_table_extractor.py`
+Преобразует `python-docx` `Table` → `list[list[str]]` и подаёт в **тот же `process_table()`** из `pdf_table_extractor`. Логика дедупликации и склейки продолжений переиспользуется.
+
+Для `.doc` сначала срабатывает `convert_doc_to_docx()` (LibreOffice headless) → дальше та же ветка DOCX.
 
 ---
 
@@ -288,11 +412,11 @@ Municipality (1) ──< School (1) ──< AddressRule >── (1) Decree
 | Метод | Путь | Параметры | Описание |
 |-------|------|-----------|----------|
 | `GET` | `/admin/upload` | — | Страница загрузки постановления. |
-| `POST` | `/admin/upload` | `file` (multipart) | Принимает файл, сохраняет в `storage/decrees/`, извлекает текст. |
-| `POST` | `/admin/parse-with-ai` | `text` (form) | Отправляет текст в GigaChat, возвращает структурированный JSON. |
+| `POST` | `/admin/upload` | `file` (multipart) | Принимает файл, сохраняет в `storage/decrees/`, извлекает текст. Возвращает `text` и `file_path` в шаблон. |
+| `POST` | `/admin/parse-with-ai` | `text`, `file_path` (form) | Запускает `universal_parser`: классификация → выбор стратегии → парсинг с LLM + табличный экстрактор. Возвращает структурированный JSON. |
 | `POST` | `/admin/save-parsed` | `parsed_json` (form) | Сохраняет распарсенные данные в БД. |
 | `GET` | `/admin/rules` | — | Таблица всех правил (CRUD). |
-| `POST` | `/admin/rules/update/{rule_id}` | `street`, `house_rule_raw`, `parity`, `house_from`, `house_to`, `house_number` | Обновляет правило. |
+| `POST` | `/admin/rules/update/{rule_id}` | `street`, `house_rule_raw`, `parity`, `house_from`, `house_to`, `house_number`, `rule_type`, `house_numbers`, `exceptions` | Обновляет правило. |
 | `POST` | `/admin/rules/delete/{rule_id}` | — | Удаляет правило. |
 | `GET` | `/admin/validation` | — | Отчёт валидатора. |
 
@@ -308,22 +432,21 @@ Municipality (1) ──< School (1) ──< AddressRule >── (1) Decree
 
 ### 1. Системные зависимости
 
-Для извлечения текста и OCR нужны:
+**LibreOffice** — нужен для конвертации `.doc` → `.docx` (кросс-платформенно).
 
 **macOS:**
 ```bash
-brew install poppler tesseract tesseract-lang
-# textutil уже встроен в систему
+brew install libreoffice
+# textutil уже встроен в систему — используется как fallback
 ```
 
 **Linux (Ubuntu/Debian):**
 ```bash
 sudo apt-get update
-sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-rus
-# Внимание: extract_text_from_doc использует textutil (macOS).
-# На Linux формат .doc через этот pipeline не поддерживается —
-# конвертируйте в .docx или .pdf заранее.
+sudo apt-get install -y libreoffice-writer
 ```
+
+> OCR в этой версии работает через облачный **ocr.space**, локальный Tesseract/Poppler не требуются.
 
 ### 2. Python-окружение
 
@@ -337,6 +460,13 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+В зависимостях, помимо FastAPI/SQLAlchemy/pydantic:
+- `pdfplumber` + `pymupdf` — два движка извлечения таблиц из PDF;
+- `python-docx` — DOCX;
+- `gigachat` — клиент GigaChat;
+- `dadata` — DaData;
+- `requests` — для ocr.space.
 
 ### 3. Конфигурация
 
@@ -375,6 +505,10 @@ DADATA_SECRET=ваш_секрет
 # GigaChat (https://developers.sber.ru/portal/products/gigachat-api)
 GIGACHAT_CREDENTIALS=ваш_authorization_key
 GIGACHAT_VERIFY_SSL_CERTS=false
+
+# ocr.space (https://ocr.space/ocrapi)
+# Для разработки можно использовать публичный демо-ключ "helloworld"
+OCR_SPACE_API_KEY=helloworld
 ```
 
 | Переменная | Назначение |
@@ -383,6 +517,7 @@ GIGACHAT_VERIFY_SSL_CERTS=false
 | `DADATA_TOKEN` / `DADATA_SECRET` | Ключи DaData для подсказок и нормализации адресов. Без них поиск не работает. |
 | `GIGACHAT_CREDENTIALS` | Authorization key для GigaChat API. Без него работает только ручное редактирование правил. |
 | `GIGACHAT_VERIFY_SSL_CERTS` | Проверка TLS-сертификатов GigaChat. У Сбера используются собственные корневые сертификаты — для разработки можно ставить `false`. |
+| `OCR_SPACE_API_KEY` | API-ключ ocr.space для распознавания сканированных PDF. По умолчанию — публичный `"helloworld"` (с лимитами). |
 
 ---
 
@@ -400,6 +535,10 @@ python seed.py
 - школа № 2;
 - два правила: нечётные дома 19–39 и чётные дома 22–48 по улице Пятилетки.
 
+В папке `example/` лежат два реальных постановления для тестирования через UI:
+- `06.03.2025-01-02-252.doc` — Березники (текстовый .doc, нужен LibreOffice или macOS textutil);
+- `проект.pdf` — Балашиха (PDF с двухколоночной таблицей, ~36 школ).
+
 ---
 
 ## Пример использования
@@ -416,8 +555,14 @@ python seed.py
 
 1. Откройте <http://127.0.0.1:8000/admin/upload>.
 2. Загрузите файл постановления (`.doc` / `.docx` / `.pdf`).
-3. Сервис извлечёт текст (для скана автоматически запустится OCR — может занять до нескольких минут).
-4. Нажмите «Распарсить через GigaChat» — LLM вернёт JSON.
+3. Сервис извлечёт текст. Если PDF — скан, автоматически уйдёт в ocr.space (может занять до минуты).
+4. Нажмите «Распарсить через GigaChat»:
+   - запускается классификатор формата (LLM);
+   - выбирается стратегия (`TwoColumn` для табличных, `MultiColumn` для свободных);
+   - извлекаются таблицы (pdfplumber → PyMuPDF → fallback);
+   - на каждую школу — отдельный LLM-запрос на территории;
+   - ответ проходит через Pydantic-валидацию;
+   - метаданные (№, дата, муниципалитет) добираются регэкспом.
 5. Проверьте JSON, при необходимости поправьте.
 6. Нажмите «Сохранить в БД».
 7. Перейдите в `/admin/rules` — увидите добавленные правила.
@@ -431,9 +576,9 @@ python seed.py
 
 - Нет аутентификации админки — все `/admin/*` endpoints открыты.
 - БД — SQLite (для одной машины и небольшого объёма данных подходит).
-- OCR и LLM-парсинг работают синхронно в процессе HTTP-запроса — для больших сканов это долго.
+- LLM-вызовы и OCR работают синхронно в процессе HTTP-запроса — для больших сканов это долго.
 - Алгоритм поиска `find_school_by_address` загружает все правила из БД и фильтрует в Python (для учебного объёма данных это нормально).
-- `.doc` поддерживается только на macOS (через `textutil`).
+- `.doc` без LibreOffice работает только на macOS (`textutil`).
 - Дата постановления хранится как строка (`String`), а не `Date`.
 - Нет автоматических тестов и миграций (Alembic).
 - Нет логирования и мониторинга.

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     gigachat_credentials: str | None = None
     gigachat_verify_ssl_certs: bool = False
 
+    ocr_space_api_key: str = "helloworld"
+
     class Config:
         env_file = ".env"
 

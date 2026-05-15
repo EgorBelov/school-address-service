@@ -116,6 +116,9 @@ button.danger {
             <th>Действия</th>
             <th>DaData</th>
             <th>Статус</th>
+            <th>Тип</th>
+<th>Список домов</th>
+<th>Исключения</th>
         </tr>
         </thead>
         <tbody>
@@ -156,6 +159,26 @@ button.danger {
             № {{ rule.decree_id }}
         </td>
         <td>
+    <select name="rule_type">
+        <option value="all" {% if rule.rule_type == "all" %}selected{% endif %}>all</option>
+        <option value="exact_list" {% if rule.rule_type == "exact_list" %}selected{% endif %}>exact_list</option>
+        <option value="range" {% if rule.rule_type == "range" %}selected{% endif %}>range</option>
+        <option value="up_to" {% if rule.rule_type == "up_to" %}selected{% endif %}>up_to</option>
+        <option value="from_to_end" {% if rule.rule_type == "from_to_end" %}selected{% endif %}>from_to_end</option>
+        <option value="all_except" {% if rule.rule_type == "all_except" %}selected{% endif %}>all_except</option>
+        <option value="mixed" {% if rule.rule_type == "mixed" %}selected{% endif %}>mixed</option>
+        <option value="unknown" {% if rule.rule_type == "unknown" %}selected{% endif %}>unknown</option>
+    </select>
+</td>
+
+<td>
+    <input name="house_numbers" value="{{ rule.house_numbers or '' }}">
+</td>
+
+<td>
+    <input name="exceptions" value="{{ rule.exceptions or '' }}">
+</td>
+        <td>
     {{ rule.dadata_value or "—" }}
 </td>
 
@@ -164,6 +187,9 @@ button.danger {
     <br>
     <small>{{ rule.validation_comment or "" }}</small>
 </td>
+<td>{{ rule.rule_type or "unknown" }}</td>
+<td>{{ rule.house_numbers or "—" }}</td>
+<td>{{ rule.exceptions or "—" }}</td>
         <td>
             <button type="submit">Сохранить</button>
     </form>

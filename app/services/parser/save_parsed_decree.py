@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Municipality, School, Decree, AddressRule
 from app.services.dadata.street_validator import validate_street_with_dadata
+from app.services.parser.rule_normalizer import normalize_rule_fields
 
 def normalize_parity(value: str | None) -> str:
     if value in ["all", "even", "odd", "mixed", "unknown"]:
@@ -92,6 +93,9 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
             schools_count += 1
 
         for rule_data in school_data.get("rules", []):
+            
+            rule_data = normalize_rule_fields(rule_data)
+            
             street = rule_data.get("street")
             house_rule_raw = str(rule_data.get("house_rule_raw") or "").strip()
             house_number = rule_data.get("house_number")
@@ -118,11 +122,20 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
                 locality=locality,
                 street=street_clean,
                 normalized_street=street_check["normalized_street"],
+
                 house_rule_raw=house_rule_raw,
+
+                rule_type=normalize_rule_type(rule_data.get("rule_type")),
                 parity=normalize_parity(rule_data.get("parity")),
+
                 house_from=normalize_int(rule_data.get("house_from")),
                 house_to=normalize_int(rule_data.get("house_to")),
                 house_number=normalize_house_number(rule_data.get("house_number")),
+                house_numbers=normalize_list(rule_data.get("house_numbers")),
+                exceptions=normalize_list(rule_data.get("exceptions")),
+
+                comment=rule_data.get("comment"),
+
                 dadata_value=street_check["dadata_value"],
                 dadata_confidence=street_check["confidence"],
                 validation_status=street_check["status"],
@@ -140,3 +153,31 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
         "schools_count": schools_count,
         "rules_count": rules_count
     }
+
+def normalize_list(value) -> str | None:
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return ",".join(str(item).strip() for item in value if str(item).strip())
+
+    return str(value).strip() or None
+
+
+def normalize_rule_type(value: str | None) -> str:
+    allowed = [
+        "all",
+        "exact_list",
+        "range",
+        "up_to",
+        "from_to_end",
+        "all_except",
+        "intersection_segment",
+        "mixed",
+        "unknown",
+    ]
+
+    if value in allowed:
+        return value
+
+    return "unknown"

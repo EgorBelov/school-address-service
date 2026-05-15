@@ -1,8 +1,12 @@
 import json
 import re
 
+from pydantic import ValidationError
+
 from app.services.ai.gigachat.client import get_gigachat_client
 from app.services.ai.gigachat.prompts import DECREE_PARSE_PROMPT
+from app.services.ai.gigachat.schemas import DecreeResponseModel
+from app.services.parser.metadata_extractor import extract_decree_metadata
 from app.services.parser.splitter import split_text_by_schools
 
 
@@ -27,26 +31,30 @@ def parse_json_or_error(content: str) -> dict:
     cleaned = clean_json_text(content)
 
     try:
-        return json.loads(cleaned)
+        raw = json.loads(cleaned)
     except json.JSONDecodeError as e:
         pos = e.pos
         start = max(0, pos - 300)
         end = min(len(cleaned), pos + 300)
-
         raise ValueError(
             f"Ошибка JSON около позиции {pos}:\n\n{cleaned[start:end]}"
         )
 
+    try:
+        validated = DecreeResponseModel.model_validate(raw)
+    except ValidationError as e:
+        raise ValueError(f"Ответ не соответствует схеме DecreeResponseModel:\n{e}")
 
-def parse_single_chunk(client, chunk: str, index: int) -> dict:
+    return validated.model_dump()
+
+
+def parse_single_chunk(client, chunk: str) -> dict:
     prompt = DECREE_PARSE_PROMPT.replace("{text}", chunk[:4000])
 
     response = client.chat(prompt)
     content = response.choices[0].message.content
 
-    parsed = parse_json_or_error(content)
-
-    return parsed
+    return parse_json_or_error(content)
 
 
 def merge_parsed_results(results: list[dict]) -> dict:
@@ -54,13 +62,13 @@ def merge_parsed_results(results: list[dict]) -> dict:
         "decree": {
             "number": "",
             "date": "",
-            "municipality": ""
+            "municipality": "",
         },
-        "schools": []
+        "schools": [],
     }
 
     for item in results:
-        decree = item.get("decree", {})
+        decree = item.get("decree", {}) or {}
 
         if decree.get("number") and not final["decree"]["number"]:
             final["decree"]["number"] = decree.get("number")
@@ -71,7 +79,7 @@ def merge_parsed_results(results: list[dict]) -> dict:
         if decree.get("municipality") and not final["decree"]["municipality"]:
             final["decree"]["municipality"] = decree.get("municipality")
 
-        final["schools"].extend(item.get("schools", []))
+        final["schools"].extend(item.get("schools", []) or [])
 
     return final
 
@@ -79,23 +87,33 @@ def merge_parsed_results(results: list[dict]) -> dict:
 def parse_decree_with_gigachat(text: str) -> dict:
     client = get_gigachat_client()
 
+    # 1. Дешёвые регэксповые метаданные. Используются как seed:
+    #    LLM может уточнить, но если он промолчал — берём это.
+    metadata = extract_decree_metadata(text)
+
+    # 2. Чанк-парсинг через LLM
     chunks = split_text_by_schools(text)
 
-    results = []
-    errors = []
+    results: list[dict] = []
+    errors: list[dict] = []
 
     for index, chunk in enumerate(chunks, start=1):
         try:
-            parsed = parse_single_chunk(client, chunk, index)
+            parsed = parse_single_chunk(client, chunk)
             results.append(parsed)
         except Exception as e:
             errors.append({
                 "chunk": index,
                 "error": str(e),
-                "preview": chunk[:500]
+                "preview": chunk[:500],
             })
 
     merged = merge_parsed_results(results)
+
+    # 3. Заполняем метаданные из регэкспов там, где LLM не справился
+    for key, value in metadata.items():
+        if value and not merged["decree"].get(key):
+            merged["decree"][key] = value
 
     if errors:
         merged["errors"] = errors
