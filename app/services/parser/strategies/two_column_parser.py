@@ -1,3 +1,15 @@
+"""
+Стратегия для двухколоночных постановлений «Школа | Территория»
+(пример — постановление Городского округа Балашиха).
+
+Пайплайн:
+  1. Извлечь строки таблицы (PDF → pdfplumber+PyMuPDF, DOCX → python-docx).
+  2. На каждую школу — LLM-вызов на её территорию (с retry).
+  3. Параллельно — regex-fallback по territory_text: добавляем
+     улицы, которые LLM пропустил.
+  4. Метаданные постановления — регэкспом, без LLM.
+  5. Если таблиц в файле нет — fallback на полный LLM-парсер.
+"""
 import json
 import re
 import time
@@ -6,13 +18,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.services.ai.gigachat.client import get_gigachat_client
-from app.services.ai.gigachat.decree_parser import (
-    _INTER_REQUEST_DELAY,
-    _is_transient_error,
-    _MAX_RETRIES,
-    _RETRY_BASE_DELAY,
-    parse_decree_with_gigachat,
-)
+from app.services.ai.gigachat.decree_parser import parse_decree_with_gigachat
+from app.services.ai.gigachat.retry import INTER_REQUEST_DELAY, call_with_retry
 from app.services.ai.gigachat.schemas import TerritoryResponseModel
 from app.services.parser.docx_table_extractor import extract_school_table_rows_from_docx
 from app.services.parser.metadata_extractor import extract_decree_metadata
@@ -110,7 +117,6 @@ def parse_territory_response(content: str) -> dict:
     """JSON → Pydantic-валидация → dict с правильными типами."""
     cleaned = content.replace("```json", "").replace("```", "").strip()
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-
     if not match:
         raise ValueError("GigaChat не вернул JSON")
 
@@ -131,35 +137,33 @@ def parse_territory_response(content: str) -> dict:
     return validated.model_dump()
 
 
+def _call_llm_for_territory(client, territory_text: str) -> dict:
+    prompt = TERRITORY_ONLY_PROMPT.replace("{text}", territory_text)
+    response = client.chat(prompt)
+    return parse_territory_response(response.choices[0].message.content)
+
+
 class TwoColumnParserStrategy(BaseParserStrategy):
     def parse(self, text: str, file_path: str | None = None) -> dict:
         client = get_gigachat_client()
+        metadata = extract_decree_metadata(text)
 
         rows: list[dict] = []
         if file_path:
             rows = extract_table_rows_for_file(file_path)
 
-        # Метаданные сразу регэкспом — дёшево, не зависит от LLM
-        metadata = extract_decree_metadata(text)
-
         result = {
-            "decree": {
-                "number": metadata["number"],
-                "date": metadata["date"],
-                "municipality": metadata["municipality"] or "городской округ Балашиха",
-            },
+            "decree": dict(metadata),
             "schools": [],
             "errors": [],
         }
 
         if not rows:
-            # Fallback: документ без распознаваемых таблиц.
-            # Парсим сырой текст обычным многошкольным парсером.
+            # Таблиц в файле нет → полный LLM-парсер по тексту.
             print("[two_column] no tables found, falling back to plain-text LLM parser")
-
             fallback = parse_decree_with_gigachat(text)
 
-            # Если LLM не заполнил поля — берём наши регэксповые / дефолтные
+            # Дополним пустые метаданные нашими регэкспами
             decree = fallback.get("decree", {}) or {}
             for key, value in result["decree"].items():
                 if value and not decree.get(key):
@@ -170,19 +174,21 @@ class TwoColumnParserStrategy(BaseParserStrategy):
                 "info": "fallback_to_plain_text",
                 "reason": "Не удалось извлечь таблицы — обработали как обычный текст.",
             })
-
             return fallback
 
         for index, row in enumerate(rows, start=1):
             if index > 1:
-                time.sleep(_INTER_REQUEST_DELAY)
+                time.sleep(INTER_REQUEST_DELAY)
 
             territory_text = row["territory_text"]
             fallback_rules = extract_rules_from_territory_text(territory_text)
 
             try:
-                parsed = _call_llm_for_territory_with_retry(
-                    client, territory_text[:3500]
+                parsed = call_with_retry(
+                    _call_llm_for_territory,
+                    client,
+                    territory_text[:3500],
+                    label="gigachat[territory]",
                 )
                 llm_rules = parsed.get("rules", []) or []
             except Exception as e:
@@ -207,29 +213,3 @@ class TwoColumnParserStrategy(BaseParserStrategy):
             })
 
         return result
-
-
-def _call_llm_for_territory_with_retry(client, territory_text: str) -> dict:
-    """Один LLM-запрос на территорию одной школы, с retry на 429 / timeout."""
-    prompt = TERRITORY_ONLY_PROMPT.replace("{text}", territory_text)
-
-    last_error: Exception | None = None
-
-    for attempt in range(1, _MAX_RETRIES + 1):
-        try:
-            response = client.chat(prompt)
-            return parse_territory_response(response.choices[0].message.content)
-        except Exception as e:
-            last_error = e
-
-            if not _is_transient_error(e) or attempt == _MAX_RETRIES:
-                raise
-
-            wait = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            print(
-                f"[gigachat] territory transient error on attempt {attempt}: {e}"
-                f" → retry in {wait:.0f}s"
-            )
-            time.sleep(wait)
-
-    raise last_error if last_error else RuntimeError("unreachable")

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Корень проекта — папка, в которой лежит /app/.
@@ -10,6 +10,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=_PROJECT_ROOT / ".env", extra="ignore")
+
     database_url: str = f"sqlite:///{_PROJECT_ROOT / 'school_service.db'}"
 
     dadata_token: str | None = None
@@ -19,9 +21,6 @@ class Settings(BaseSettings):
     gigachat_verify_ssl_certs: bool = False
 
     ocr_space_api_key: str = "helloworld"
-
-    class Config:
-        env_file = _PROJECT_ROOT / ".env"
 
 
 settings = Settings()

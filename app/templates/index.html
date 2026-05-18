@@ -1,102 +1,31 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Определение школы по адресу</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            margin: 0;
-            padding: 40px;
-        }
+{% extends "base.html" %}
 
-        .card {
-            max-width: 760px;
-            margin: 0 auto;
-            background: white;
-            padding: 32px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.08);
-        }
+{% block title %}Поиск школы по адресу{% endblock %}
 
-        .field {
-            position: relative;
-        }
+{% block extra_head %}
+<style>
+    .search-card { max-width: 760px; }
 
-        input {
-            width: 100%;
-            box-sizing: border-box;
-            padding: 14px 16px;
-            font-size: 16px;
-            border-radius: 12px;
-            border: 1px solid #d0d5dd;
-            margin-bottom: 16px;
-        }
+    .field { position: relative; }
 
-        input:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
-        }
+    .suggestions {
+        position: absolute;
+        z-index: 10;
+        left: 0; right: 0; top: 48px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+        display: none;
+    }
+    .suggestion { padding: 10px 14px; cursor: pointer; font-size: 14px; }
+    .suggestion:hover { background: #f3f4f6; }
+</style>
+{% endblock %}
 
-        button {
-            padding: 14px 20px;
-            border: none;
-            border-radius: 12px;
-            background: #2563eb;
-            color: white;
-            font-size: 16px;
-            cursor: pointer;
-        }
-
-        .suggestions {
-            position: absolute;
-            z-index: 10;
-            left: 0;
-            right: 0;
-            top: 52px;
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 14px;
-            box-shadow: 0 16px 40px rgba(0,0,0,0.12);
-            overflow: hidden;
-            display: none;
-        }
-
-        .suggestion {
-            padding: 12px 14px;
-            cursor: pointer;
-            font-size: 15px;
-        }
-
-        .suggestion:hover {
-            background: #f3f4f6;
-        }
-
-        .hint {
-            color: #667085;
-            font-size: 14px;
-        }
-
-        .result {
-            margin-top: 24px;
-            padding: 20px;
-            border-radius: 16px;
-            background: #ecfdf3;
-        }
-
-        .error {
-            margin-top: 24px;
-            padding: 20px;
-            border-radius: 16px;
-            background: #fef3f2;
-            color: #b42318;
-        }
-    </style>
-</head>
-<body>
-<div class="card">
+{% block content %}
+<div class="search-card">
     <h1>Определение школы по адресу</h1>
     <p>Введите адрес проживания, чтобы узнать прикреплённую школу.</p>
 
@@ -105,7 +34,7 @@
             <input
                 id="address"
                 name="address"
-                placeholder="Например: г. Березники, ул. Пятилетки, д. 21"
+                placeholder="Например: г. Балашиха, ул. Маяковского, д. 3"
                 required
             />
             <div id="suggestions" class="suggestions"></div>
@@ -117,7 +46,7 @@
     </form>
 
     {% if result %}
-    <div class="result">
+    <div class="alert success">
         <p><b>Адрес:</b> {{ result.address }}</p>
         <p><b>Прикреплённая школа:</b> {{ result.school_name }}</p>
         {% if result.school_address %}
@@ -129,24 +58,22 @@
         <p><b>Основание:</b> постановление № {{ result.decree_number }} от {{ result.decree_date }}</p>
         <p><b>Правило:</b> {{ result.street }}, {{ result.rule }}</p>
     </div>
-{% endif %}
+    {% endif %}
 
     {% if error %}
-        <div class="error">
-            {{ error }}
-        </div>
+    <div class="alert error">{{ error }}</div>
     {% endif %}
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
     const input = document.getElementById("address");
     const box = document.getElementById("suggestions");
-
     let timer = null;
 
     input.addEventListener("input", () => {
         const query = input.value.trim();
-
         clearTimeout(timer);
 
         if (query.length < 3) {
@@ -166,11 +93,8 @@
             }
 
             box.innerHTML = items.map(item => `
-                <div class="suggestion" data-value="${item.value}">
-                    ${item.value}
-                </div>
+                <div class="suggestion" data-value="${item.value}">${item.value}</div>
             `).join("");
-
             box.style.display = "block";
 
             document.querySelectorAll(".suggestion").forEach(el => {
@@ -188,5 +112,4 @@
         }
     });
 </script>
-</body>
-</html>
+{% endblock %}

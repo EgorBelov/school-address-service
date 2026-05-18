@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}School Address Service{% endblock %}</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 32px;
+            color: #1f2937;
+        }
+
+        .card {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 28px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+        }
+
+        h1 { margin-top: 0; }
+
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .nav {
+            max-width: 1200px;
+            margin: 0 auto 16px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            padding: 6px 10px;
+            border-radius: 8px;
+        }
+        .nav a:hover {
+            background: #eef2ff;
+            text-decoration: none;
+        }
+
+        input, select, textarea, button {
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input[type="text"], input[type="search"], input:not([type]), select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d5dd;
+            border-radius: 10px;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 10px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background: #1d4ed8; }
+        button.danger { background: #ef4444; }
+        button.danger:hover { background: #b91c1c; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th {
+            text-align: left;
+            background: #f9fafb;
+            padding: 10px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #3730a3;
+            font-size: 12px;
+        }
+
+        .alert {
+            margin-top: 16px;
+            padding: 16px 18px;
+            border-radius: 14px;
+        }
+        .alert.success { background: #ecfdf3; color: #027a48; }
+        .alert.error   { background: #fef3f2; color: #b42318; }
+        .alert.warning { background: #fffaeb; color: #b54708; }
+
+        .hint { color: #667085; font-size: 13px; }
+
+        pre {
+            white-space: pre-wrap;
+            background: #111827;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 12px;
+            max-height: 600px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<nav class="nav">
+    <a href="/">Поиск школы</a>
+    <a href="/admin/upload">Загрузка постановления</a>
+    <a href="/admin/rules">Правила</a>
+    <a href="/admin/validation">Валидация</a>
+</nav>
+
+<main class="card">
+    {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

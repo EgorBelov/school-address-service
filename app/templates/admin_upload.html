@@ -1,104 +1,51 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Загрузка постановления</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            margin: 0;
-            padding: 40px;
-        }
+{% extends "base.html" %}
 
-        .card {
-            max-width: 960px;
-            margin: 0 auto;
-            background: white;
-            padding: 32px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.08);
-        }
+{% block title %}Загрузка постановления{% endblock %}
 
-        input, button {
-            font-size: 16px;
-        }
+{% block content %}
+<h1>Загрузка постановления</h1>
 
-        button {
-            margin-top: 16px;
-            padding: 12px 18px;
-            border: none;
-            border-radius: 12px;
-            background: #2563eb;
-            color: white;
-            cursor: pointer;
-        }
+<form action="/admin/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".doc,.docx,.pdf" required>
+    <br><br>
+    <button type="submit">Загрузить и извлечь текст</button>
+</form>
 
-        pre {
-            white-space: pre-wrap;
-            background: #111827;
-            color: #f9fafb;
-            padding: 20px;
-            border-radius: 16px;
-            max-height: 600px;
-            overflow: auto;
-        }
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
 
-        .error {
-            margin-top: 24px;
-            padding: 20px;
-            border-radius: 16px;
-            background: #fef3f2;
-            color: #b42318;
-        }
-    </style>
-</head>
-<body>
-<div class="card">
-    <h1>Загрузка постановления</h1>
+{% if text %}
+<h2>Извлечённый текст</h2>
 
-    <form action="/admin/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".doc,.docx,.pdf" required>
-        <br>
-        <button type="submit">Загрузить и извлечь текст</button>
-    </form>
+<form action="/admin/parse-with-ai" method="post">
+    {# textarea, а не input — корректно сохраняет переносы строк #}
+    <textarea name="text" style="display:none;">{{ text }}</textarea>
+    <input type="hidden" name="file_path" value="{{ file_path or '' }}">
+    <button type="submit">Распарсить через GigaChat</button>
+</form>
 
-    {% if error %}
-        <div class="error">{{ error }}</div>
-    {% endif %}
-
-    {% if text %}
-    <h2>Извлечённый текст</h2>
-
-    <form action="/admin/parse-with-ai" method="post">
-        <textarea name="text" style="display:none;">{{ text }}</textarea>
-        <input type="hidden" name="file_path" value="{{ file_path or '' }}">
-        <button type="submit">Распарсить через GigaChat</button>
-    </form>
-
-    <pre>{{ text }}</pre>
+<pre>{{ text }}</pre>
 {% endif %}
 
 {% if parsed %}
-    <h2>JSON от GigaChat</h2>
+<h2>JSON от GigaChat</h2>
 
-    <form action="/admin/save-parsed" method="post">
-        <textarea name="parsed_json" style="display:none;">{{ parsed }}</textarea>
-        <button type="submit">Сохранить в БД</button>
-    </form>
+<form action="/admin/save-parsed" method="post">
+    <textarea name="parsed_json" style="display:none;">{{ parsed }}</textarea>
+    <button type="submit">Сохранить в БД</button>
+</form>
 
-    <pre>{{ parsed }}</pre>
+<pre>{{ parsed }}</pre>
 {% endif %}
 
 {% if saved %}
-    <div style="margin-top: 24px; padding: 20px; border-radius: 16px; background: #ecfdf3;">
-        <h2>Данные сохранены</h2>
-        <p><b>Муниципалитет:</b> {{ saved.municipality }}</p>
-        <p><b>ID постановления:</b> {{ saved.decree_id }}</p>
-        <p><b>Школ добавлено:</b> {{ saved.schools_count }}</p>
-        <p><b>Правил добавлено:</b> {{ saved.rules_count }}</p>
-    </div>
-{% endif %}
+<div class="alert success">
+    <h2>Данные сохранены</h2>
+    <p><b>Муниципалитет:</b> {{ saved.municipality }}</p>
+    <p><b>ID постановления:</b> {{ saved.decree_id }}</p>
+    <p><b>Школ добавлено:</b> {{ saved.schools_count }}</p>
+    <p><b>Правил добавлено:</b> {{ saved.rules_count }}</p>
 </div>
-</body>
-</html>
+{% endif %}
+{% endblock %}

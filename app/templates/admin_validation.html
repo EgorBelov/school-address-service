@@ -1,115 +1,44 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Валидация правил</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            margin: 0;
-            padding: 32px;
-        }
+{% extends "base.html" %}
 
-        .card {
-            max-width: 1100px;
-            margin: 0 auto;
-            background: white;
-            padding: 28px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.08);
-        }
+{% block title %}Валидация правил{% endblock %}
 
-        .nav {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 24px;
-        }
+{% block extra_head %}
+<style>
+    .issue {
+        padding: 14px 16px;
+        border-radius: 12px;
+        margin-bottom: 10px;
+        border: 1px solid #e5e7eb;
+    }
+    .issue.error   { background: #fef3f2; border-color: #fecdca; }
+    .issue.warning { background: #fffaeb; border-color: #fedf89; }
 
-        a {
-            color: #2563eb;
-            text-decoration: none;
-        }
+    .meta { color: #667085; font-size: 13px; }
+</style>
+{% endblock %}
 
-        .issue {
-            padding: 16px;
-            border-radius: 14px;
-            margin-bottom: 12px;
-            border: 1px solid #e5e7eb;
-        }
+{% block content %}
+<h1>Валидация правил</h1>
 
-        .error {
-            background: #fef3f2;
-            border-color: #fecdca;
-        }
+{% if not issues %}
+<div class="alert success">Ошибок и предупреждений не найдено.</div>
+{% endif %}
 
-        .warning {
-            background: #fffaeb;
-            border-color: #fedf89;
-        }
-
-        .ok {
-            padding: 20px;
-            border-radius: 16px;
-            background: #ecfdf3;
-            color: #027a48;
-        }
-
-        .meta {
-            color: #667085;
-            font-size: 14px;
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 999px;
-            font-size: 12px;
-            background: #eef2ff;
-            color: #3730a3;
-        }
-    </style>
-</head>
-<body>
-<div class="card">
-    <div class="nav">
-        <a href="/">Поиск школы</a>
-        <a href="/admin/upload">Загрузка постановления</a>
-        <a href="/admin/rules">Правила</a>
-    </div>
-
-    <h1>Валидация правил</h1>
-
-    {% if not issues %}
-        <div class="ok">
-            Ошибок и предупреждений не найдено.
-        </div>
-    {% endif %}
-
-    {% for issue in issues %}
-        <div class="issue {{ issue.level }}">
-            <p>
-                <span class="badge">{{ issue.level }}</span>
-                <b>{{ issue.type }}</b>
-            </p>
-
-            <p>{{ issue.message }}</p>
-
-            <p class="meta">
-                Правило ID: {{ issue.rule_id }}
-                {% if issue.second_rule_id %}
-                    · Второе правило ID: {{ issue.second_rule_id }}
-                {% endif %}
-            </p>
-
-            <p class="meta">
-                Школа: {{ issue.school }}
-                {% if issue.second_school %}
-                    · Вторая школа: {{ issue.second_school }}
-                {% endif %}
-            </p>
-        </div>
-    {% endfor %}
+{% for issue in issues %}
+<div class="issue {{ issue.level }}">
+    <p>
+        <span class="badge">{{ issue.level }}</span>
+        <b>{{ issue.type }}</b>
+    </p>
+    <p>{{ issue.message }}</p>
+    <p class="meta">
+        Правило ID: {{ issue.rule_id }}
+        {% if issue.second_rule_id %} · Второе правило ID: {{ issue.second_rule_id }}{% endif %}
+    </p>
+    <p class="meta">
+        Школа: {{ issue.school }}
+        {% if issue.second_school %} · Вторая школа: {{ issue.second_school }}{% endif %}
+    </p>
 </div>
-</body>
-</html>
+{% endfor %}
+{% endblock %}
