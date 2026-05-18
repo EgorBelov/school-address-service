@@ -2,7 +2,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.models.models import AddressRule
-from app.services.address.normalize import normalize_street_name
+from app.services.address.normalize import normalize_locality, normalize_street_name
 
 
 def extract_house_number(house: str | None) -> int | None:
@@ -87,6 +87,75 @@ def is_house_matches(rule: AddressRule, house: str | None) -> bool:
     return False
 
 
+def _locality_key(value: str) -> str:
+    """Нормализованная форма локали (lowercase, ё→е, без типа поселения)."""
+    return normalize_locality(value).replace("ё", "е")
+
+
+def _locality_match(a: str, b: str) -> bool:
+    """
+    Толерантное сравнение двух локали — учитывает падеж и букву «ё»:
+      «Пермь» / «Перми» → match
+      «Берёзники» / «Березников» → match
+      «Балашиха» / «Балашихи» → match
+      «Балашиха» / «Балахна» → mismatch
+    Алгоритм: ищем общий префикс ≥4 символа; различие в последних
+    1–2 символах (типичные падежные окончания) считается совпадением.
+    """
+    a = _locality_key(a)
+    b = _locality_key(b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+
+    common = 0
+    for i in range(min(len(a), len(b))):
+        if a[i] != b[i]:
+            break
+        common += 1
+
+    if common < 4:
+        return False
+
+    tail_a = len(a) - common
+    tail_b = len(b) - common
+    return tail_a <= 2 and tail_b <= 2
+
+
+def is_locality_matches(rule: AddressRule, target_locality: str) -> bool:
+    """
+    Правило применимо к адресу, только если совпадает населённый пункт.
+    Берём два источника (что заполнено — то и сравниваем):
+      1. rule.locality — locality из самого правила;
+      2. rule.school.municipality.name — муниципалитет школы.
+    Если у правила ни один источник не заполнен — пропускаем фильтр
+    (best effort). Если target_locality пустой — тоже не отсеиваем.
+    """
+    if not target_locality:
+        return True
+
+    candidates: list[str] = []
+
+    if rule.locality:
+        candidates.append(rule.locality)
+
+    school = getattr(rule, "school", None)
+    if school is not None:
+        municipality = getattr(school, "municipality", None)
+        if municipality is not None and municipality.name:
+            candidates.append(municipality.name)
+
+    if not candidates:
+        return True
+
+    for candidate in candidates:
+        if _locality_match(candidate, target_locality):
+            return True
+
+    return False
+
+
 def find_school_by_address(
     db: Session,
     locality: str | None,
@@ -94,13 +163,21 @@ def find_school_by_address(
     house: str | None
 ):
     target_street = normalize_street_name(street)
+    target_locality = normalize_locality(locality)
 
     rules = db.query(AddressRule).all()
 
     for rule in rules:
-        rule_street = normalize_street_name(rule.normalized_street or rule.street)
+        # Используем ИСХОДНЫЙ rule.street из постановления, а НЕ
+        # `normalized_street` от DaData — последний часто содержит
+        # мусор (привязка к ГСК / гаражному кооперативу / другому
+        # объекту по соседству), что ломает поиск по улице.
+        rule_street = normalize_street_name(rule.street)
 
         if rule_street != target_street:
+            continue
+
+        if not is_locality_matches(rule, target_locality):
             continue
 
         if is_house_matches(rule, house):

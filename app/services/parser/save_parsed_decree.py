@@ -24,6 +24,54 @@ def normalize_house_number(value) -> str | None:
     return str(value)
 
 
+_NUMBER_RE = __import__("re").compile(r"\d+")
+
+
+def sanitize_school_address(value) -> str | None:
+    """
+    Адрес школы — это короткая строка с одним зданием
+    («г. Балашиха, ул. Ленина, д. 21», максимум +«корп. 1»).
+    Если LLM подсунул сюда фрагмент территории (список домов /
+    несколько улиц) — отбрасываем.
+    """
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if len(text) > 200:
+        return None
+
+    lowered = text.lower()
+
+    # Несколько разделителей улиц / точек с запятой = территория
+    if (
+        text.count(";") >= 1
+        or lowered.count("ул.") >= 2
+        or lowered.count("мкр.") >= 1
+    ):
+        return None
+
+    nums_count = len(_NUMBER_RE.findall(text))
+
+    # Более 2 чисел = список домов: «Ленина, 10, 10а, 12»
+    if nums_count > 2:
+        return None
+
+    # Если в строке 2+ чисел И нет явного маркера здания («д. 21», «корп.»)
+    # И нет географической привязки — это территория, например «Объединения, 4, 6».
+    import re as _re
+    has_building = bool(_re.search(r"\bд\.\s*\d|\bкорп\.|\bстр\.", lowered))
+    has_geo = bool(_re.search(r"\bг\.|город|посёлок|поселок|\bпос\.", lowered))
+
+    if nums_count >= 2 and not has_building and not has_geo:
+        return None
+
+    return text
+
+
 def normalize_int(value) -> int | None:
     if value is None:
         return None
@@ -85,7 +133,7 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
             school = School(
                 municipality_id=municipality.id,
                 name=school_name,
-                address=school_data.get("address")
+                address=sanitize_school_address(school_data.get("address")),
             )
             db.add(school)
             db.flush()
@@ -111,10 +159,22 @@ def save_parsed_decree(db: Session, parsed: dict) -> dict:
             locality = rule_data.get("locality")
             street_clean = street.replace("ул. ", "").replace("пр-кт ", "").strip()
 
-            street_check = validate_street_with_dadata(
-                locality=locality,
-                street=street_clean
-            )
+            try:
+                street_check = validate_street_with_dadata(
+                    locality=locality,
+                    street=street_clean,
+                )
+            except Exception as e:
+                # DaData может тайм-аутиться или быть недоступна — не валим
+                # всё сохранение, просто помечаем правило как непроверенное.
+                print(f"[dadata] validation failed for {street_clean!r}: {e}")
+                street_check = {
+                    "status": "skipped",
+                    "normalized_street": street_clean.lower(),
+                    "dadata_value": None,
+                    "confidence": None,
+                    "comment": f"DaData недоступна: {e}",
+                }
 
             rule = AddressRule(
                 school_id=school.id,

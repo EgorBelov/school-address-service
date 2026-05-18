@@ -7,6 +7,7 @@ from app.db.session import Base, engine, SessionLocal
 from app.models import models
 from app.services.search.find_school import find_school_by_address
 from fastapi.responses import JSONResponse
+from app.services.address.local_parser import parse_address_locally
 from app.services.dadata.client import clean_address, suggest_address
 from pathlib import Path
 from fastapi import UploadFile, File
@@ -51,15 +52,10 @@ def search(
 ):
     normalized = clean_address(address)
 
+    # Если DaData недоступна (TLS timeout / нет ключа) — парсим адрес
+    # сами регэкспом. Менее точно, но позволяет работать оффлайн.
     if not normalized:
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "result": None,
-                "error": "DaData не настроена или адрес не удалось проверить."
-            }
-        )
+        normalized = parse_address_locally(address)
 
     city = normalized.get("city") or normalized.get("settlement")
     street = normalized.get("street")

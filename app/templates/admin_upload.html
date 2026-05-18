@@ -59,7 +59,6 @@
 
     <form action="/admin/upload" method="post" enctype="multipart/form-data">
         <input type="file" name="file" accept=".doc,.docx,.pdf" required>
-        <input type="hidden" name="file_path" value="{{ file_path or '' }}">
         <br>
         <button type="submit">Загрузить и извлечь текст</button>
     </form>
@@ -73,6 +72,7 @@
 
     <form action="/admin/parse-with-ai" method="post">
         <textarea name="text" style="display:none;">{{ text }}</textarea>
+        <input type="hidden" name="file_path" value="{{ file_path or '' }}">
         <button type="submit">Распарсить через GigaChat</button>
     </form>
 

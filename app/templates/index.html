@@ -120,7 +120,9 @@
     <div class="result">
         <p><b>Адрес:</b> {{ result.address }}</p>
         <p><b>Прикреплённая школа:</b> {{ result.school_name }}</p>
+        {% if result.school_address %}
         <p><b>Адрес школы:</b> {{ result.school_address }}</p>
+        {% endif %}
 
         <hr>
 
