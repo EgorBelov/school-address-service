@@ -6,10 +6,15 @@ build_<role>.py.
 """
 from pathlib import Path
 
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Cm
+
 from report_lib import (
     add_bullet,
+    add_figure_caption,
     add_heading,
     add_para,
+    add_table_caption,
     add_table_simple,
     add_title_page,
     new_document,
@@ -17,6 +22,7 @@ from report_lib import (
 
 
 REPORT_PATH = Path(__file__).parent / "общая_часть.docx"
+ARCH_DIAGRAM_PATH = Path(__file__).parent / "img" / "architecture.png"
 
 
 doc = new_document()
@@ -65,9 +71,6 @@ add_para(
     "сократить стоимость и время обработки массовых документов и "
     "снизить зависимость от внешних платных сервисов."
 )
-
-doc.add_page_break()
-
 
 # ─────────────────────── Глава 1. О проекте ────────────────────────────
 
@@ -186,9 +189,6 @@ add_para(
     italic=True,
 )
 
-doc.add_page_break()
-
-
 # ─────────────────────── Глава 2. Предметная область ────────────────────────────
 
 add_heading(doc, "Глава 2. Анализ предметной области", level=1)
@@ -274,8 +274,7 @@ add_para(
     "бизнес-аналитика."
 )
 
-add_para(doc, "Таблица 2.1 — Сравнительная характеристика существующих решений",
-         first_line_indent=0, italic=True)
+add_table_caption(doc, "Таблица 2.1. Сравнительная характеристика существующих решений")
 add_table_simple(doc, [
     ["Решение", "Поддержка форматов", "Структурный разбор",
      "Поиск по адресу", "Ограничения"],
@@ -292,9 +291,6 @@ add_table_simple(doc, [
      "Структурный + LLM-страховка", "Есть, с DaData-нормализацией",
      "Учебный прототип, требует доработки авторизации и миграций"],
 ])
-
-doc.add_page_break()
-
 
 # ─────────────────────── Глава 3. Архитектура и стек ────────────────────────────
 
@@ -329,44 +325,12 @@ add_para(
     "ocr.space (распознавание сканированных PDF)."
 )
 
-add_para(doc, "Рисунок 3.1 — Верхнеуровневая архитектура веб-сервиса",
-         first_line_indent=0, italic=True)
-add_para(doc, "┌──────────────────────────────────────────────────────────┐",
-         first_line_indent=0)
-add_para(doc, "│  Браузер пользователя (родитель / администратор УО)      │",
-         first_line_indent=0)
-add_para(doc, "└─────────────────────────────┬────────────────────────────┘",
-         first_line_indent=0)
-add_para(doc, "                              │ HTTP/HTML/JSON",
-         first_line_indent=0)
-add_para(doc, "┌─────────────────────────────▼────────────────────────────┐",
-         first_line_indent=0)
-add_para(doc, "│            FastAPI · уровень представления               │",
-         first_line_indent=0)
-add_para(doc, "│         (эндпоинты / шаблоны Jinja2 / формы)             │",
-         first_line_indent=0)
-add_para(doc, "└─────────────────────────────┬────────────────────────────┘",
-         first_line_indent=0)
-add_para(doc, "┌─────────────────────────────▼────────────────────────────┐",
-         first_line_indent=0)
-add_para(doc, "│  Доменные сервисы (app/services/<domain>/):              │",
-         first_line_indent=0)
-add_para(doc, "│  parser · search · address · dadata · ai · ocr · validation │",
-         first_line_indent=0)
-add_para(doc, "└──────┬─────────────┬──────────────┬──────────────┬──────┘",
-         first_line_indent=0)
-add_para(doc, "       │             │              │              │",
-         first_line_indent=0)
-add_para(doc, "       ▼             ▼              ▼              ▼",
-         first_line_indent=0)
-add_para(doc, "┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐",
-         first_line_indent=0)
-add_para(doc, "│ SQLite   │   │ DaData   │   │ GigaChat │   │ ocr.space│",
-         first_line_indent=0)
-add_para(doc, "│ (БД)     │   │ (адреса) │   │ (LLM)    │   │ (OCR)    │",
-         first_line_indent=0)
-add_para(doc, "└──────────┘   └──────────┘   └──────────┘   └──────────┘",
-         first_line_indent=0)
+pic_p = doc.add_paragraph()
+pic_p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+pic_p.paragraph_format.first_line_indent = Cm(0)
+pic_p.add_run().add_picture(str(ARCH_DIAGRAM_PATH), width=Cm(15.5))
+
+add_figure_caption(doc, "Рисунок 3.1. Верхнеуровневая архитектура веб-сервиса")
 
 add_heading(doc, "3.3. Стек технологий", level=2)
 add_para(
@@ -377,8 +341,7 @@ add_para(
     "ориентации на типовой стек российских веб-сервисов. Состав "
     "технологий приведён в таблице 3.1."
 )
-add_para(doc, "Таблица 3.1 — Стек технологий проекта",
-         first_line_indent=0, italic=True)
+add_table_caption(doc, "Таблица 3.1. Стек технологий проекта")
 add_table_simple(doc, [
     ["Слой", "Технологии"],
     ["Backend", "Python 3.11+, FastAPI, Uvicorn"],
@@ -407,8 +370,7 @@ add_para(
     "постановление содержит множество правил. Детальное описание модели "
     "данных приведено в индивидуальной части системного аналитика."
 )
-add_para(doc, "Таблица 3.2 — Сущности модели данных",
-         first_line_indent=0, italic=True)
+add_table_caption(doc, "Таблица 3.2. Сущности модели данных")
 add_table_simple(doc, [
     ["Сущность", "Назначение"],
     ["Municipality", "Муниципальные образования (Пермь, Берёзники, Балашиха)"],
@@ -419,9 +381,6 @@ add_table_simple(doc, [
      "содержит как структурные поля (тип правила, чётность, диапазоны, "
      "исключения), так и исходный текст правила"],
 ])
-
-doc.add_page_break()
-
 
 # ─────────────────────── Глава 4. Ход выполнения проекта ────────────────────────────
 
@@ -437,8 +396,7 @@ add_para(
     "наблюдений. Основные этапы выполнения проекта приведены в "
     "таблице 4.1."
 )
-add_para(doc, "Таблица 4.1 — Этапы выполнения проекта",
-         first_line_indent=0, italic=True)
+add_table_caption(doc, "Таблица 4.1. Этапы выполнения проекта")
 add_table_simple(doc, [
     ["№", "Этап", "Ключевые активности", "Ответственные роли"],
     ["1", "Анализ предметной области",
@@ -513,9 +471,6 @@ add_para(
     "регулярно демонстрировались внутри команды на встречах для "
     "получения обратной связи."
 )
-
-doc.add_page_break()
-
 
 # ─────────────────────── Глава 5. Итоги ────────────────────────────
 
